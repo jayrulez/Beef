@@ -341,6 +341,42 @@ namespace Tests
 			}
 		}
 
+		class MethodSource
+		{
+			public static void Alpha() { }
+			public static void Beta() { }
+		}
+
+		// TypeInstance.GetMethod(int) is overridden by an extension that reads the
+		// runtime method table, which does not exist at comptime. Without a comptime
+		// branch in that override every index answers NoResults for a type whose
+		// methods are all present, and Comptime_GetMethodCount still reports them.
+		struct ComptimeMethodLookup
+		{
+			[OnCompile(.TypeInit), Comptime]
+			static void Generate()
+			{
+				let source = (TypeInstance)typeof(MethodSource);
+
+				int found = 0;
+				int named = 0;
+				for (int i < 64)
+				{
+					if (source.GetMethod(i) case .Ok(let method))
+					{
+						found++;
+						if ((method.Name == "Alpha") || (method.Name == "Beta"))
+							named++;
+					}
+				}
+
+				Compiler.EmitTypeBody(typeof(Self), scope $"""
+					public const int cFound = {found};
+					public const int cNamed = {named};
+					""");
+			}
+		}
+
 		class ClassB<T> where T : const int
 		{
 			public typealias TA = comptype(GetVal(10, T));
@@ -668,6 +704,9 @@ namespace Tests
 			Test.Assert(ReadPersists.cByte1 == (.)'e');
 			Test.Assert((ReadPersists.cTextLen == 6) || (ReadPersists.cTextLen == 7));
 			Test.Assert(ReadPersists.cTextChar0 == (.)'T');
+
+			Test.Assert(ComptimeMethodLookup.cFound > 0);
+			Test.Assert(ComptimeMethodLookup.cNamed == 2);
 
 			ClassB<const 3>.TA f = default;
 			Test.Assert(typeof(decltype(f)) == typeof(float));
