@@ -496,7 +496,15 @@ namespace System
 				Comptime_EmitMixin(text);
 		}
 
-		[Comptime]
+		// These return a view of scope-allocated storage, so the result has to be
+		// materialised at the call site. Without ConstEval the storage is released at
+		// the return and the caller reads whatever claims the block next, with the
+		// length copied by value and still correct, which makes the corruption quiet.
+		//
+		// Comptime code that wants the data in its own storage should call File.ReadAll
+		// or File.ReadAllText directly; those work at comptime and take a path that
+		// need not be a literal.
+		[Comptime(ConstEval=true)]
 		public static Span<uint8> ReadBinary(StringView path)
 		{
 			List<uint8> data = scope .();
@@ -504,7 +512,7 @@ namespace System
 			return data;
 		}
 
-		[Comptime]
+		[Comptime(ConstEval=true)]
 		public static String ReadText(StringView path)
 		{
 			String data = scope .();

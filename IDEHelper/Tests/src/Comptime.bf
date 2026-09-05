@@ -315,6 +315,32 @@ namespace Tests
 		const String cTest1 = new String('A', 12);
 		const uint8[?] cTest0Binary = Compiler.ReadBinary("Test0.txt");
 
+		struct ReadPersists
+		{
+			// ReadBinary and ReadText must survive allocation that happens after the
+			// call, which they do by folding at the call site under ConstEval.
+			// Assigning straight to a const hides a regression here, because the const
+			// is materialised before anything else can claim the block.
+			[OnCompile(.TypeInit), Comptime]
+			static void Generate()
+			{
+				var binary = Compiler.ReadBinary("Test0.txt");
+				var text = Compiler.ReadText("Test0.txt");
+
+				let churn = scope List<uint8>();
+				for (int i < 4096)
+					churn.Add((uint8)(i & 0xFF));
+
+				Compiler.EmitTypeBody(typeof(Self), scope $"""
+					public const int cLen = {binary.Count};
+					public const int cByte0 = {binary[0]};
+					public const int cByte1 = {binary[1]};
+					public const int cTextLen = {text.Length};
+					public const int cTextChar0 = {(int)text[0]};
+					""");
+			}
+		}
+
 		class ClassB<T> where T : const int
 		{
 			public typealias TA = comptype(GetVal(10, T));
@@ -635,6 +661,13 @@ namespace Tests
 			Test.Assert(cTest1 == "AAAAAAAAAAAA");
 			Test.Assert((Object)cTest1 == (Object)"AAAAAAAAAAAA");
 			Test.Assert((cTest0Binary[0] == (.)'T') && ((cTest0Binary.Count == 6) || (cTest0Binary.Count == 7)));
+
+			// The same data, read but not consumed until after further allocation.
+			Test.Assert((ReadPersists.cLen == 6) || (ReadPersists.cLen == 7));
+			Test.Assert(ReadPersists.cByte0 == (.)'T');
+			Test.Assert(ReadPersists.cByte1 == (.)'e');
+			Test.Assert((ReadPersists.cTextLen == 6) || (ReadPersists.cTextLen == 7));
+			Test.Assert(ReadPersists.cTextChar0 == (.)'T');
 
 			ClassB<const 3>.TA f = default;
 			Test.Assert(typeof(decltype(f)) == typeof(float));
