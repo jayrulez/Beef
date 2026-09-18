@@ -273,7 +273,7 @@ namespace IDE
 			return .Err;
 		}
 
-		bool QueueProjectGNUArchive(Project project, String targetPath, Workspace.Options workspaceOptions, Project.Options options, String objectsArg)
+		bool QueueProjectGNUArchive(Project project, String targetPath, Workspace.Options workspaceOptions, Project.Options options, String objectsArg, CompileKind compileKind)
 		{
 #if BF_PLATFORM_WINDOWS
 			String llvmDir = scope String(IDEApp.sApp.mInstallDir);
@@ -400,7 +400,11 @@ namespace IDE
 
 			UpdateCacheStr(project, "", workspaceOptions, options, null, null);
 
-		    if (project.mNeedsTargetRebuild)
+			if (!WantsProjectBuild(project, compileKind))
+			{
+				// We will catch the mNeedsTargetRebuild later when we do a proper build
+			}
+		    else if (project.mNeedsTargetRebuild)
 		    {
 		        if (File.Delete(targetPath) case .Err)
 				{
@@ -469,7 +473,7 @@ namespace IDE
 			return true;
 		}
 
-		bool QueueProjectGNULink(Project project, String targetPath, Workspace.Options workspaceOptions, Project.Options options, String objectsArg)
+		bool QueueProjectGNULink(Project project, String targetPath, Workspace.Options workspaceOptions, Project.Options options, String objectsArg, CompileKind compileKind)
 		{
 			if (options.mBuildOptions.mBuildKind == .Intermediate)
 				return true;
@@ -664,7 +668,11 @@ namespace IDE
 
 				UpdateCacheStr(project, linkLine, workspaceOptions, options, depPaths, libPaths);
 
-			    if (project.mNeedsTargetRebuild)
+				if (!WantsProjectBuild(project, compileKind))
+				{
+					// We will catch the mNeedsTargetRebuild later when we do a proper build
+				}
+			    else if (project.mNeedsTargetRebuild)
 			    {
 			        if (File.Delete(targetPath) case .Err)
 					{
@@ -780,7 +788,7 @@ namespace IDE
 #endif
 		}
 
-		bool QueueProjectWasmLink(Project project, String targetPath, Workspace.Options workspaceOptions, Project.Options options, String objectsArg)
+		bool QueueProjectWasmLink(Project project, String targetPath, Workspace.Options workspaceOptions, Project.Options options, String objectsArg, CompileKind compileKind)
 		{
 			//bool isDebug = gApp.mConfigName.IndexOf("Debug", true) != -1;
 
@@ -877,7 +885,11 @@ namespace IDE
 
 				String emsdkPath = scope .(gApp.mSettings.mEmscriptenPath);
 
-			    if (project.mNeedsTargetRebuild)
+				if (!WantsProjectBuild(project, compileKind))
+				{
+					// We will catch the mNeedsTargetRebuild later when we do a proper build
+				}
+			    else if (project.mNeedsTargetRebuild)
 			    {
 			        if (File.Delete(targetPath) case .Err)
 					{
@@ -1897,7 +1909,7 @@ namespace IDE
 
 			if (mPlatformType == .Wasm)
 			{
-				if (!QueueProjectWasmLink(project, targetPath, workspaceOptions, options, objectsArg))
+				if (!QueueProjectWasmLink(project, targetPath, workspaceOptions, options, objectsArg, compileKind))
 					return false;
 			}
 			else if ((gApp.GetBuildToolset(workspaceOptions) == .GNU) || (useLinuxLLVM))
@@ -1905,10 +1917,10 @@ namespace IDE
 				if ((options.mBuildOptions.mBuildKind == .StaticLib) ||
 					((options.mBuildOptions.mBuildKind == .DynamicLib) && (!useLinuxLLVM)))
 				{
-					if (!QueueProjectGNUArchive(project, targetPath, workspaceOptions, options, objectsArg))
+					if (!QueueProjectGNUArchive(project, targetPath, workspaceOptions, options, objectsArg, compileKind))
 						return false;
 				}
-				else if (!QueueProjectGNULink(project, targetPath, workspaceOptions, options, objectsArg))
+				else if (!QueueProjectGNULink(project, targetPath, workspaceOptions, options, objectsArg, compileKind))
 					return false;
 			}
 			else // MS
@@ -1922,7 +1934,7 @@ namespace IDE
 				{
 					if (options.mBuildOptions.mBuildKind == .StaticLib)
 					{
-						if (!QueueProjectGNUArchive(project, targetPath, workspaceOptions, options, objectsArg))
+						if (!QueueProjectGNUArchive(project, targetPath, workspaceOptions, options, objectsArg, compileKind))
 							return false;
 					}
 					else
