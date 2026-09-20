@@ -289,6 +289,28 @@ namespace System.IO
 				Test.Assert(readData[3] == 4);
 			}
 		}
+
+		[Test]
+		public static void GetLastWriteTime_MatchesTheDirectoryEnumeration()
+		{
+			String tempDir = scope .();
+			GetTempPath(tempDir);
+			String path = scope String()..AppendF("{}/bf_test_lastwrite.tmp", tempDir);
+			defer File.Delete(path);
+			uint8[1] data = .(1);
+			Test.Assert(File.WriteAll(path, .(&data, 1)) case .Ok);
+
+			// Both paths decode the same file time: the path based query and the
+			// enumeration entry. On POSIX the former returned raw seconds, which decoded
+			// as a moment in 1601.
+			let byPath = File.GetLastWriteTimeUtc(path).Get();
+			Test.Assert(byPath.Year >= 2000, scope $"{byPath}");
+			for (let entry in Directory.EnumerateFiles(tempDir, "bf_test_lastwrite.tmp"))
+			{
+				let byEntry = entry.GetLastWriteTimeUtc();
+				Test.Assert(Math.Abs((byPath - byEntry).TotalSeconds) < 2, scope $"{byPath} vs {byEntry}");
+			}
+		}
 	}
 #endif
 
