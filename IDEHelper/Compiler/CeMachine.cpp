@@ -32,6 +32,28 @@ extern "C"
 
 #define CE_ENABLE_HEAP
 
+// DEBUG TRACE (not for merging): plain stores here, one dump when a bounds check fails.
+static Beefy::BfType* gCeDbgAttrType = NULL;
+static int gCeDbgAttrSize = -1;
+static int gCeDbgAttrDefineState = -1;
+static int gCeDbgAttrAddr = -1;
+static int gCeDbgAttrMemSizeBefore = -1;
+static int gCeDbgAttrMemSizeAfter = -1;
+static int gCeDbgAttrAllocSize = -1;
+static int gCeDbgAttrStackSize = -1;
+static int gCeDbgAttrHeapMem = -1;
+static int gCeDbgAttrHeapOfs = -1;
+static int gCeDbgAttrHeapFree = -1;
+static int gCeDbgAttrHeapRef = -1;
+static int gCeDbgCallThisAddr = -1;
+static int gCeDbgCallStackOfs = -1;
+static int gCeDbgCallMemSize = -1;
+static int gCeDbgCallStackSize = -1;
+static int gCeDbgCallFrameSize = -1;
+static int gCeDbgCtxPooled = -1;
+static int gCeDbgCtxMemSizeAtAlloc = -1;
+static int gCeDbgCtxHeapMemAtAlloc = -1;
+
 USING_NS_BF;
 
 enum CeOpInfoFlag
@@ -4021,6 +4043,7 @@ uint8* CeContext::CeMalloc(int size)
 {
 #ifdef CE_ENABLE_HEAP
 	auto heapRef = mHeap->Alloc(size);
+	gCeDbgAttrHeapRef = (int)heapRef;
 	auto ceAddr = mStackSize + heapRef;
 	int sizeDelta = (ceAddr + size) - mMemory.mSize;
 	if (sizeDelta > 0)
@@ -5300,8 +5323,19 @@ BfIRValue CeContext::CreateAttribute(BfAstNode* targetSrc, BfModule* module, BfI
 	SetAndRestoreValue<bool> prevIgnoreWrites(module->mBfIRBuilder->mIgnoreWrites, true);
 
 	module->mContext->mUnreifiedModule->PopulateType(customAttribute->mType);
+	gCeDbgAttrType = customAttribute->mType;
+	gCeDbgAttrSize = customAttribute->mType->mSize;
+	gCeDbgAttrDefineState = (int)customAttribute->mType->mDefineState;
+	gCeDbgAttrMemSizeBefore = mMemory.mSize;
+	gCeDbgAttrStackSize = mStackSize;
+	gCeDbgAttrHeapMem = mHeap->mMemorySize;
+	gCeDbgAttrHeapOfs = mHeap->mBlockDataOfs;
+	gCeDbgAttrHeapFree = mHeap->mFreeList.mSize;
 	if (ceAttrAddr == 0)	
 		ceAttrAddr = CeMallocZero(customAttribute->mType->mSize) - mMemory.mVals;			
+	gCeDbgAttrAddr = ceAttrAddr;
+	gCeDbgAttrMemSizeAfter = mMemory.mSize;
+	gCeDbgAttrAllocSize = mMemory.mAllocSize;
 	BfIRValue ceAttrVal = module->mBfIRBuilder->CreateConstAggCE(module->mBfIRBuilder->MapType(customAttribute->mType, BfIRPopulateType_Identity), ceAttrAddr);
 	BfTypedValue ceAttrTypedValue(ceAttrVal, customAttribute->mType);
 
@@ -5771,6 +5805,11 @@ BfTypedValue CeContext::Call(CeCallSource callSource, BfModule* module, BfMethod
 
 	BfType* returnType = NULL;
 	BfType* castReturnType = NULL;
+	gCeDbgCallThisAddr = (int)thisAddr;
+	gCeDbgCallStackOfs = (int)(stackPtr - memStart);
+	gCeDbgCallMemSize = mMemory.mSize;
+	gCeDbgCallStackSize = mStackSize;
+	gCeDbgCallFrameSize = ceFunction->mFrameSize;
 	bool success = Execute(ceFunction, stackPtr - ceFunction->mFrameSize, stackPtr, returnType, castReturnType);
 	memStart = &mMemory[0];
 
@@ -5885,6 +5924,10 @@ BfTypedValue CeContext::Call(CeCallSource callSource, BfModule* module, BfMethod
 #define CE_CHECKADDR(ADDR, SIZE) \
 	if (((ADDR) < 0x10000) || ((ADDR) + (SIZE) > memSize)) \
 	{ \
+		printf("[CEDBG] CHECKADDR fail addr=%d size=%d memSize=%d mem.mSize=%d mem.mAllocSize=%d stackSize=%d func=%s\n", (int)(ADDR), (int)(SIZE), (int)memSize, (int)mMemory.mSize, (int)mMemory.mAllocSize, (int)mStackSize, ceFunction->mMethodInstance->mMethodDef->mName.c_str()); \
+		printf("[CEDBG]   lastAttr type=%s size=%d defineState=%d ceAttrAddr=%d memBefore=%d memAfter=%d allocSize=%d stackSize=%d heapMem=%d heapOfs=%d heapFree=%d heapRef=%d\n", ((gCeDbgAttrType != NULL) && (mCurModule != NULL)) ? mCurModule->TypeToString(gCeDbgAttrType).c_str() : "?", gCeDbgAttrSize, gCeDbgAttrDefineState, gCeDbgAttrAddr, gCeDbgAttrMemSizeBefore, gCeDbgAttrMemSizeAfter, gCeDbgAttrAllocSize, gCeDbgAttrStackSize, gCeDbgAttrHeapMem, gCeDbgAttrHeapOfs, gCeDbgAttrHeapFree, gCeDbgAttrHeapRef); \
+		printf("[CEDBG]   lastCall thisAddr=%d stackOfs=%d memSize=%d stackSize=%d frameSize=%d ctxPooled=%d ctxMemAtAlloc=%d ctxHeapAtAlloc=%d\n", gCeDbgCallThisAddr, gCeDbgCallStackOfs, gCeDbgCallMemSize, gCeDbgCallStackSize, gCeDbgCallFrameSize, gCeDbgCtxPooled, gCeDbgCtxMemSizeAtAlloc, gCeDbgCtxHeapMemAtAlloc); \
+		fflush(stdout); \
 		_Fail("Access violation"); \
 		return false; \
 	}
@@ -11303,6 +11346,9 @@ CeContext* CeMachine::AllocContext()
 	ceContext->mMemory.ResizeRaw(ceContext->mStackSize);
 	ceContext->mExecuteId = mExecuteId;
 	ceContext->mCurHandleId = 0;
+	gCeDbgCtxPooled = mContextList.mSize;
+	gCeDbgCtxMemSizeAtAlloc = ceContext->mMemory.mSize;
+	gCeDbgCtxHeapMemAtAlloc = ceContext->mHeap->mMemorySize;
 	return ceContext;
 }
 
